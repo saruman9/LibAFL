@@ -85,12 +85,15 @@ fn parse_timeout(src: &str) -> Result<Duration, Error> {
 #[cfg(feature = "frida_cli")]
 fn parse_instrumentation_location(
     location: &str,
-) -> Result<(String, usize), Box<dyn error::Error + Send + Sync + 'static>> {
+) -> Result<(String, Option<usize>), Box<dyn error::Error + Send + Sync + 'static>> {
     let pos = location
         .find('@')
         .ok_or("Expected an '@' in location specifier")?;
 
     let (module, offset) = location.split_at(pos);
+    if offset.is_empty() {
+        return Ok((module.to_string(), None));
+    }
 
     Ok((
         module.to_string(),
@@ -100,7 +103,8 @@ fn parse_instrumentation_location(
                 .ok_or("index out of range")?
                 .trim_start_matches("0x"),
             16,
-        )?,
+        )
+        .ok(),
     ))
 }
 
@@ -243,10 +247,15 @@ pub struct FuzzerOptions {
     #[arg(long, help_heading = "Frida Options")]
     pub disable_excludes: bool,
 
-    /// Locations which will not be instrumented for `ASan` or coverage purposes (ex: `mod_name@0x12345`)
+    /// Locations which will not be instrumented for `ASan` or coverage purposes (ex: `mod_name@0x12345`, `mod_name@`)
     #[cfg(feature = "frida_cli")]
     #[arg(short = 'D', long, help_heading = "Frida Options", value_parser = parse_instrumentation_location)]
-    pub dont_instrument: Vec<(String, usize)>,
+    pub dont_instrument: Vec<(String, Option<usize>)>,
+
+    /// Locations which will not be used for `ASan` or coverage purposes and another runtimes (ex: `mod_name@0x12345`, `mod_name@`)
+    #[cfg(feature = "frida_cli")]
+    #[arg(long, help_heading = "Frida Options", value_parser = parse_instrumentation_location)]
+    pub dont_coverage: Vec<(String, Option<usize>)>,
 
     /// Trailing arguments (after "`--`"); can be passed directly to QEMU
     #[cfg(feature = "qemu_cli")]

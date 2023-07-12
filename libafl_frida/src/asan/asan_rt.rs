@@ -181,9 +181,16 @@ impl FridaRuntime for AsanRuntime {
         self.module_map = Some(ModuleMap::new_from_names(gum, modules_to_instrument));
         if !self.options.dont_instrument.is_empty() {
             for (module_name, offset) in self.options.dont_instrument.clone() {
-                let module_details = ModuleDetails::with_name(module_name).unwrap();
-                let lib_start = module_details.range().base_address().0 as usize;
-                self.suppressed_addresses.push(lib_start + offset);
+                let range = ModuleDetails::with_name(module_name).unwrap().range();
+                let lib_start = range.base_address().0 as usize;
+                let lib_end = range.size();
+                if let Some(offset) = offset {
+                    self.suppressed_addresses.push(lib_start + offset);
+                } else {
+                    for address in (lib_start..lib_end).step_by(4) {
+                        self.suppressed_addresses.push(address);
+                    }
+                }
             }
         }
 

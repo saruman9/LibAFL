@@ -117,6 +117,7 @@ pub struct FridaInstrumentationHelper<'a, RT: 'a> {
     options: &'a FuzzerOptions,
     transformer: Transformer<'a>,
     ranges: Rc<RefCell<RangeMap<usize, (u16, String)>>>,
+    not_coverage_ranges: RangeMap<usize, String>,
     runtimes: Rc<RefCell<RT>>,
 }
 
@@ -125,6 +126,7 @@ impl<RT> Debug for FridaInstrumentationHelper<'_, RT> {
         let mut dbg_me = f.debug_struct("FridaInstrumentationHelper");
         dbg_me
             .field("ranges", &self.ranges)
+            .field("not_coverage_ranges", &self.not_coverage_ranges)
             .field("module_map", &"<ModuleMap>")
             .field("options", &self.options);
         dbg_me.finish()
@@ -200,6 +202,7 @@ where
 
         let module_map = ModuleMap::new_from_names(gum, &modules_to_instrument);
         let mut ranges = RangeMap::new();
+        let mut not_coverage_ranges = RangeMap::new();
 
         if options.cmplog || options.asan || !options.disable_coverage {
             for (i, module) in module_map.values().iter().enumerate() {
@@ -210,10 +213,40 @@ where
             }
             if !options.dont_instrument.is_empty() {
                 for (module_name, offset) in options.dont_instrument.clone() {
-                    let module_details = ModuleDetails::with_name(module_name).unwrap();
-                    let lib_start = module_details.range().base_address().0 as usize;
-                    // log::info!("removing address: {:#x}", lib_start + offset);
-                    ranges.remove((lib_start + offset)..(lib_start + offset + 4));
+                    let range = ModuleDetails::with_name(module_name.clone())
+                        .unwrap()
+                        .range();
+                    let lib_start = range.base_address().0 as usize;
+                    if let Some(offset) = offset {
+                        log::info!("removing address: {:#x}", lib_start + offset);
+                        ranges.remove((lib_start + offset)..(lib_start + offset + 4));
+                    } else {
+                        let lib_end = lib_start + range.size();
+                        log::info!(
+                            "removing whole module ({module_name}): {:#x}-{:#x}",
+                            lib_start,
+                            lib_start + lib_end
+                        );
+                        ranges.remove(lib_start..(lib_start + lib_end));
+                    }
+                }
+            }
+
+            if !options.dont_coverage.is_empty() {
+                for (module_name, offset) in options.dont_coverage.clone() {
+                    let range = ModuleDetails::with_name(module_name.clone())
+                        .unwrap()
+                        .range();
+                    let lib_start = range.base_address().0 as usize;
+                    if let Some(offset) = offset {
+                        log::info!("don't coverage address: {:#x}", lib_start + offset);
+                        not_coverage_ranges
+                            .insert(lib_start + offset..lib_start + offset + 4, module_name);
+                    } else {
+                        let lib_end = lib_start + range.size();
+                        log::info!("don't coverage whole module ({module_name}): {lib_start:#x} - {lib_end:#x}");
+                        not_coverage_ranges.insert(lib_start..lib_end, module_name);
+                    }
                 }
             }
 
@@ -371,6 +404,7 @@ where
             transformer,
             ranges,
             runtimes,
+            not_coverage_ranges,
         }
     }
 

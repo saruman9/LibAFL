@@ -20,7 +20,7 @@ use crate::helper::FridaRuntime;
 pub struct DrCovRuntime {
     /// The basic blocks of this execution
     pub drcov_basic_blocks: Vec<DrCovBasicBlock>,
-    /// The memory ragnes of this target
+    /// The memory ranges of this target
     ranges: RangeMap<usize, (u16, String)>,
     stalked_addresses: HashMap<usize, usize>,
 }
