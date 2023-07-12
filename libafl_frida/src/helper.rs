@@ -1,4 +1,5 @@
 use core::fmt::{self, Debug, Formatter};
+use std::path::PathBuf;
 
 #[cfg(target_arch = "aarch64")]
 use capstone::{
@@ -15,6 +16,7 @@ use frida_gum::instruction_writer::InstructionWriter;
 #[cfg(unix)]
 use frida_gum::CpuContext;
 use frida_gum::{stalker::Transformer, Gum, Module, ModuleDetails, ModuleMap, PageProtection};
+use hashbrown::HashSet;
 use libafl::{
     bolts::{cli::FuzzerOptions, tuples::MatchFirstType},
     inputs::{HasTargetBytes, Input},
@@ -119,6 +121,8 @@ pub struct FridaInstrumentationHelper<'a, RT> {
     capstone: Capstone,
     ranges: RangeMap<usize, (u16, String)>,
     module_map: ModuleMap,
+    module_paths: Vec<PathBuf>,
+    unexpected_modules: HashSet<PathBuf>,
     options: &'a FuzzerOptions,
     transformer: Option<Transformer<'a>>,
     runtimes: RT,
@@ -130,6 +134,8 @@ impl<RT> Debug for FridaInstrumentationHelper<'_, RT> {
         dbg_me
             .field("ranges", &self.ranges)
             .field("module_map", &"<ModuleMap>")
+            .field("module_paths", &self.module_paths)
+            .field("unexpected_modules", &self.unexpected_modules)
             .field("options", &self.options);
         dbg_me.finish()
     }
@@ -199,6 +205,18 @@ where
             .to_string_lossy()
             .to_string()];
         modules_to_instrument.append(&mut options.libs_to_instrument.clone());
+        let module_paths = modules_to_instrument
+            .iter()
+            .map(|s| {
+                let path = PathBuf::from(s)
+                    .canonicalize()
+                    .expect("Path for module should be correct");
+                if !path.exists() {
+                    log::warn!("Library for instrumenting doesn't exist.");
+                }
+                path
+            })
+            .collect();
         let modules_to_instrument: Vec<&str> =
             modules_to_instrument.iter().map(AsRef::as_ref).collect();
 
@@ -219,6 +237,8 @@ where
                 .expect("Failed to create Capstone object"),
             ranges: RangeMap::new(),
             module_map: ModuleMap::new_from_names(gum, &modules_to_instrument),
+            module_paths,
+            unexpected_modules: HashSet::new(),
             options,
             runtimes,
             transformer: None,
@@ -228,7 +248,12 @@ where
             for (i, module) in helper.module_map.values().iter().enumerate() {
                 let range = module.range();
                 let start = range.base_address().0 as usize;
-                // log::trace!("start: {:x}", start);
+                log::debug!(
+                    "module {}: {:x} - {:x}",
+                    module.path(),
+                    start,
+                    start + range.size()
+                );
                 helper
                     .ranges
                     .insert(start..(start + range.size()), (i as u16, module.path()));
@@ -257,18 +282,123 @@ where
 
         let transformer = Transformer::from_callback(gum, |basic_block, output| {
             let mut first = true;
-            for instruction in basic_block {
+
+            for (i, instruction) in basic_block.enumerate() {
                 let instr = instruction.instr();
                 #[cfg(unix)]
                 let instr_size = instr.bytes().len();
                 let address = instr.address();
-                //log::trace!("block @ {:x} transformed to {:x}", address, output.writer().pc());
+                if i == 0 {
+                    if !helper.ranges().contains_key(&(address as usize)) {
+                        let module_details = {
+                            if let Some(module_details) = ModuleDetails::with_address(address) {
+                                module_details
+                            } else {
+                                if !helper.options().disable_excludes {
+                                    log::warn!("Frida should know about instrumented code ({address:x} - unknown address)");
+                                }
+                                instruction.keep();
+                                continue;
+                            }
+                        };
+                        let module_path = PathBuf::from(module_details.path());
+                        if !helper.unexpected_modules.contains(&module_path) {
+                            log::debug!("Unexpected module: {}", module_path.display());
+                            helper.unexpected_modules.insert(module_path.clone());
 
-                //log::trace!(
-                //"address: {:x} contains: {:?}",
-                //address,
-                //self.ranges().contains_key(&(address as usize))
-                //);
+                            if helper.module_paths().contains(&module_path)
+                                || helper.module_paths().contains(&module_path)
+                            {
+                                log::debug!("The module should be added to instrumented modules");
+                                let names: Vec<String> = helper
+                                    .module_paths()
+                                    .iter()
+                                    .map(|p| p.to_string_lossy().to_string())
+                                    .collect();
+                                helper.module_map = ModuleMap::new_from_names(
+                                    gum,
+                                    &names
+                                        .iter()
+                                        .map(AsRef::as_ref)
+                                        .collect::<Vec<&str>>()
+                                        .as_slice(),
+                                );
+
+                                let id = helper.module_map.values().len();
+                                let range = module_details.range();
+                                let start = range.base_address().0 as usize;
+                                // TODO: check don't instrument addresses
+                                helper.ranges.insert(
+                                    start..(start + range.size()),
+                                    (
+                                        u16::try_from(id)
+                                            .expect("Id of module should have u16 type's size"),
+                                        module_details.path(),
+                                    ),
+                                );
+
+                                let ranges = helper.ranges().clone();
+                                if let Some(rt) = helper.runtime_mut::<DrCovRuntime>() {
+                                    rt.init(
+                                        gum,
+                                        &ranges,
+                                        &names
+                                            .iter()
+                                            .map(AsRef::as_ref)
+                                            .collect::<Vec<&str>>()
+                                            .as_slice(),
+                                    );
+                                }
+                            } else {
+                                log::debug!(
+                                    "The module should be excluded from instrumentation range"
+                                );
+                                let mut stalker = frida_gum::stalker::Stalker::new(gum);
+                                // FIXME: it will not work after the Frida start
+                                stalker.exclude(&module_details.range());
+                            }
+                        }
+                    }
+                    let mut is_found = false;
+
+                    for module in helper.module_map.values() {
+                        // log::trace!(
+                        //     "{}: {:x} - {:x}",
+                        //     module.path(),
+                        //     module.range().base_address().0 as usize,
+                        //     module.range().size() + module.range().base_address().0 as usize
+                        // );
+                        if (module.range().base_address().0 as usize
+                            ..(module.range().base_address().0 as usize + module.range().size()))
+                            .contains(&(address as usize))
+                        {
+                            log::trace!("{} : {address:x}", module.path());
+                            is_found = true;
+                        }
+                    }
+                    if !is_found {
+                        log::trace!("{address:x}");
+                    }
+                }
+                // log::trace!(
+                //     "block @ {:x} transformed to {:x}",
+                //     address,
+                //     output.writer().pc()
+                // );
+                // for module in helper.module_map.values() {
+                //     if (module.range().base_address().0 as usize
+                //         ..(module.range().base_address().0 as usize + module.range().size()))
+                //         .contains(&(address as usize))
+                //     {
+                //         log::debug!("module_path: {}", module.path());
+                //     }
+                // }
+
+                // log::trace!(
+                //     "address: {:x} contains: {:?}",
+                //     address,
+                //     helper.ranges().contains_key(&(address as usize))
+                // );
 
                 //log::info!("Ranges: {:#?}", self.ranges());
                 if helper.ranges().contains_key(&(address as usize)) {
@@ -439,5 +569,15 @@ where
     #[inline]
     pub fn options(&self) -> &FuzzerOptions {
         self.options
+    }
+
+    /// Modules paths
+    pub fn module_paths(&self) -> &Vec<PathBuf> {
+        &self.module_paths
+    }
+
+    /// Unexpected modules paths
+    pub fn unexpected_modules(&self) -> &HashSet<PathBuf> {
+        &self.unexpected_modules
     }
 }

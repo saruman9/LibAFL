@@ -161,6 +161,12 @@ where
         // we don't add it to the INSTRUMENTED ranges.
         let mut ranges = helper.ranges().clone();
         for module in frida_gum::Module::enumerate_modules() {
+            log::debug!(
+                "{}: {:x} - {:x}",
+                module.path,
+                module.base_address,
+                module.base_address + module.size
+            );
             if module.base_address < Self::new as usize
                 && (Self::new as usize) < module.base_address + module.size
             {
@@ -168,7 +174,7 @@ where
                     module.base_address..(module.base_address + module.size),
                     (0xffff, "fuzzer".to_string()),
                 );
-                break;
+                // break;
             }
         }
 
