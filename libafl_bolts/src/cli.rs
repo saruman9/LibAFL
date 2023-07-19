@@ -116,6 +116,10 @@ pub struct FuzzerOptions {
     /// Timeout for each target execution (milliseconds)
     #[arg(short, long, default_value = "1000", value_parser = parse_timeout, help_heading = "Fuzz Options")]
     pub timeout: Duration,
+    
+    /// Interpret timeouts as objectives
+    #[arg(short = 'T', long, help_heading = "Fuzz Options")]
+    pub is_timeout_objective: bool,
 
     /// Load corpus from the discovered directory
     #[arg(long = "continue", help_heading = "Fuzz Options")]
