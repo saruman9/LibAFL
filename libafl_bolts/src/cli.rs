@@ -196,7 +196,7 @@ pub struct FuzzerOptions {
 
     /// Enable `ASan` leak detection
     #[cfg(feature = "frida_cli")]
-    #[arg(short, long, help_heading = "ASan Options")]
+    #[arg(long, help_heading = "ASan Options")]
     pub detect_leaks: bool,
 
     /// Instruct `ASan` to continue after a memory error is detected
@@ -212,7 +212,6 @@ pub struct FuzzerOptions {
     /// The maximum size that the `ASan` allocator should allocate
     #[cfg(feature = "frida_cli")]
     #[arg(
-        short,
         long,
         default_value = "1073741824",  // 1_usize << 30
         help_heading = "ASan Options"
@@ -222,7 +221,6 @@ pub struct FuzzerOptions {
     /// The maximum total allocation size that the `ASan` allocator should allocate
     #[cfg(feature = "frida_cli")]
     #[arg(
-        short = 'M',
         long,
         default_value = "4294967296",  // 1_usize << 32
         help_heading = "ASan Options"
@@ -318,6 +316,10 @@ pub struct FuzzerOptions {
         requires = "replay"
     )]
     pub repeat: Option<usize>,
+
+    /// Run minimization of the corpus. Discovered directory (--discovered) used as result directory.
+    #[arg(short = 'M', long)]
+    pub minimization: bool,
 }
 
 impl FuzzerOptions {
