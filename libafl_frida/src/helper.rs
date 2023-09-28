@@ -205,14 +205,19 @@ where
             for (i, module) in module_map.values().iter().enumerate() {
                 let range = module.range();
                 let start = range.base_address().0 as usize;
-                // log::trace!("start: {:x}", start);
+                log::trace!(
+                    "module {}: {:#016X} - {:#016X}",
+                    module.path(),
+                    start,
+                    start + range.size()
+                );
                 ranges.insert(start..(start + range.size()), (i as u16, module.path()));
             }
             if !options.dont_instrument.is_empty() {
                 for (module_name, offset) in options.dont_instrument.clone() {
                     let module_details = ModuleDetails::with_name(module_name).unwrap();
                     let lib_start = module_details.range().base_address().0 as usize;
-                    // log::info!("removing address: {:#x}", lib_start + offset);
+                    log::info!("removing address: {:#x}", lib_start + offset);
                     ranges.remove((lib_start + offset)..(lib_start + offset + 4));
                 }
             }
