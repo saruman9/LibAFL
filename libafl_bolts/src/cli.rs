@@ -116,6 +116,14 @@ pub struct FuzzerOptions {
     /// Timeout for each target execution (milliseconds)
     #[arg(short, long, default_value = "1000", value_parser = parse_timeout, help_heading = "Fuzz Options")]
     pub timeout: Duration,
+    
+    /// Interpret timeouts as objectives
+    #[arg(short = 'T', long, help_heading = "Fuzz Options")]
+    pub is_timeout_objective: bool,
+
+    /// Load corpus from the discovered directory
+    #[arg(long = "continue", help_heading = "Fuzz Options")]
+    pub is_continue: bool,
 
     /// Whether or not to print debug info
     #[arg(short, long)]
@@ -188,7 +196,7 @@ pub struct FuzzerOptions {
 
     /// Enable `ASan` leak detection
     #[cfg(feature = "frida_cli")]
-    #[arg(short, long, help_heading = "ASan Options")]
+    #[arg(long, help_heading = "ASan Options")]
     pub detect_leaks: bool,
 
     /// Instruct `ASan` to continue after a memory error is detected
@@ -204,7 +212,6 @@ pub struct FuzzerOptions {
     /// The maximum size that the `ASan` allocator should allocate
     #[cfg(feature = "frida_cli")]
     #[arg(
-        short,
         long,
         default_value = "1073741824",  // 1_usize << 30
         help_heading = "ASan Options"
@@ -214,7 +221,6 @@ pub struct FuzzerOptions {
     /// The maximum total allocation size that the `ASan` allocator should allocate
     #[cfg(feature = "frida_cli")]
     #[arg(
-        short = 'M',
         long,
         default_value = "4294967296",  // 1_usize << 32
         help_heading = "ASan Options"
@@ -275,6 +281,14 @@ pub struct FuzzerOptions {
     )]
     pub output: PathBuf,
 
+    /// Path for discovered corpus
+    #[arg(
+        long,
+        default_value = "corpus_discovered/",
+        help_heading = "Corpus Options"
+    )]
+    pub discovered: PathBuf,
+
     /// Spawn a client in each of the provided cores. Use 'all' to select all available
     /// cores. 'none' to run a client without binding to any core.
     /// ex: '1,2-4,6' selects the cores 1, 2, 3, 4, and 6.
@@ -302,6 +316,10 @@ pub struct FuzzerOptions {
         requires = "replay"
     )]
     pub repeat: Option<usize>,
+
+    /// Run minimization of the corpus. Discovered directory (--discovered) used as result directory.
+    #[arg(short = 'M', long)]
+    pub minimization: bool,
 }
 
 impl FuzzerOptions {
