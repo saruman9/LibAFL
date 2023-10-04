@@ -117,6 +117,10 @@ pub struct FuzzerOptions {
     #[arg(short, long, default_value = "1000", value_parser = parse_timeout, help_heading = "Fuzz Options")]
     pub timeout: Duration,
 
+    /// Load corpus from the discovered directory
+    #[arg(long = "continue", help_heading = "Fuzz Options")]
+    pub is_continue: bool,
+
     /// Whether or not to print debug info
     #[arg(short, long)]
     pub verbose: bool,
@@ -274,6 +278,14 @@ pub struct FuzzerOptions {
         help_heading = "Corpus Options"
     )]
     pub output: PathBuf,
+
+    /// Path for discovered corpus
+    #[arg(
+        long,
+        default_value = "corpus_discovered/",
+        help_heading = "Corpus Options"
+    )]
+    pub discovered: PathBuf,
 
     /// Spawn a client in each of the provided cores. Use 'all' to select all available
     /// cores. 'none' to run a client without binding to any core.
